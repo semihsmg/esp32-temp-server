@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tree:*)",
+      "Bash(git add:*)",
+      "Bash(git tag:*)",
+      "Skill(update-docs-and-commit)",
+      "Skill(update-docs-and-commit:*)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "L:\\projects\\claude-code-sounds\\JARVIS\\prompt-submit-sounds.bat"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "L:\\projects\\claude-code-sounds\\JARVIS\\notification-sounds.bat"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "L:\\projects\\claude-code-sounds\\JARVIS\\stop-sounds.bat"
+          }
+        ]
+      }
+    ]
+  }
+}
