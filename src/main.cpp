@@ -310,7 +310,7 @@ void handleDownload(AsyncWebServerRequest *request) {
             
             // Send header first
             if (!state->headerSent) {
-                const char* header = "Date,Time,Temperature,Humidity\n";
+                const char* header = "DateTime,Temperature,Humidity\n";
                 size_t headerLen = strlen(header);
                 if (headerLen <= maxLen) {
                     memcpy(buf, header, headerLen);
@@ -355,7 +355,7 @@ void handleDownload(AsyncWebServerRequest *request) {
                         
                         // Format output line
                         int written = snprintf(buf + len, maxLen - len,
-                            "%s,%s,%.1f,%.1f\n",
+                            "%s %s,%.1f,%.1f\n",
                             state->currentDate.c_str(),
                             timeStr.c_str(),
                             temp, humidity);
