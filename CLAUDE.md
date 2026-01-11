@@ -28,7 +28,7 @@ DHT22 → ESP32 (60s interval) → LittleFS storage → Web UI
 
 **Download format** (human-readable):
 - Combined single CSV with header
-- Row format: `YYYY-MM-DD,HH:MM,23.5,65.2`
+- Row format: `YYYY-MM-DD HH:MM,23.5,65.2` (DateTime with space separator)
 - Chunked streaming to avoid RAM exhaustion
 
 ## Technical Decisions

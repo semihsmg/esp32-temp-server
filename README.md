@@ -86,9 +86,9 @@ Example:
 ### Downloaded CSV
 
 ```csv
-Date,Time,Temperature,Humidity
-2025-01-03,14:35,23.5,65.2
-2025-01-03,14:36,23.6,65.1
+DateTime,Temperature,Humidity
+2025-01-03 14:35,23.5,65.2
+2025-01-03 14:36,23.6,65.1
 ```
 
 ## Storage Capacity
