@@ -68,7 +68,7 @@ pio device monitor
 | `/` | Dashboard with live readings and history chart |
 | `/api/live` | JSON: current temperature/humidity |
 | `/api/files` | JSON: list of stored data files |
-| `/api/history?range=` | JSON: historical data (24h, 7d, or 30d) |
+| `/api/history` | JSON: all historical data |
 | `/download` | Download all data as combined CSV |
 | `/api/delete` | POST: delete all stored data |
 
@@ -103,8 +103,9 @@ DateTime,Temperature,Humidity
 The web interface includes an interactive temperature/humidity chart:
 
 - **Dual-axis display**: Temperature (left, red) and humidity (right, teal)
-- **Time ranges**: 24h / 7d / 30d selectable via buttons
-- **Auto-refresh**: Updates every 5 minutes with new readings
+- **Time ranges**: 24h / 7d / 30d selectable via buttons (instant switching)
+- **Client-side caching**: All data fetched once, filtered in browser for fast range switching
+- **Auto-refresh**: Full data refresh every 5 minutes
 - **Smart decimation**: Uses LTTB algorithm to limit to ~500 points for smooth performance
 - **Requires internet**: Chart.js is loaded from CDN
 

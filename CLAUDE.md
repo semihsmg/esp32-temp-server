@@ -46,7 +46,7 @@ DHT22 → ESP32 (5min interval) → LittleFS storage → Web UI
 | `/` | GET | Dashboard HTML with live readings and history chart |
 | `/api/live` | GET | JSON: current temp/humidity |
 | `/api/files` | GET | JSON: list of stored files with sizes |
-| `/api/history` | GET | JSON: historical data for chart (accepts `?range=24h\|7d\|30d`) |
+| `/api/history` | GET | JSON: all historical data (client-side filtering) |
 | `/download` | GET | Stream combined CSV (all data) |
 | `/api/delete` | POST | Delete all stored data files |
 
@@ -61,7 +61,7 @@ In `src/main.cpp`:
 ## Dependencies (auto-installed by PlatformIO)
 
 - `DHT sensor library` — Adafruit DHT driver
-- `ESPAsyncWebServer` — Non-blocking web server
+- `mathieucarbou/ESPAsyncWebServer` — Non-blocking web server (maintained fork)
 - `ArduinoJson` — JSON serialization for API responses
 - `LittleFS` — Built into ESP32 Arduino core
 
@@ -69,9 +69,10 @@ In `src/main.cpp`:
 
 - **Library**: Chart.js loaded from CDN (zero flash usage)
 - **Type**: Dual-axis line chart (temperature left, humidity right)
-- **Ranges**: 24h / 7d / 30d selectable buttons
+- **Ranges**: 24h / 7d / 30d selectable buttons (instant switch, client-side filtering)
+- **Data caching**: All data fetched once, cached in browser, filtered client-side
 - **Decimation**: Client-side LTTB algorithm, ~500 points max for performance
-- **Auto-refresh**: Chart updates every 5 minutes with new data
+- **Auto-refresh**: Full data refresh every 5 minutes
 
 ## Known Limitations / Future Ideas
 
