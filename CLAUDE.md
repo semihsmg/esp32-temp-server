@@ -7,9 +7,9 @@ Standalone temperature/humidity logger using ESP32 + DHT22. Stores data locally 
 ## Architecture
 
 ```
-DHT22 → ESP32 (60s interval) → LittleFS storage → Web UI
-                                    ↓
-                              Chunked CSV download
+DHT22 → ESP32 (5min interval) → LittleFS storage → Web UI
+                                    ↓                      ↓
+                              Chunked CSV download    Chart.js graph
 ```
 
 ## Key Files
@@ -24,7 +24,7 @@ DHT22 → ESP32 (60s interval) → LittleFS storage → Web UI
 - Filename: `/data/YYYYMMDD.csv`
 - Row format: `HHMM,temp*10,humidity*10` (no newline after humidity)
 - Example: `1435,235,652` means 14:35, 23.5°C, 65.2%
-- ~13 bytes/entry → ~18 KB/day → ~110 days in 2MB
+- ~13 bytes/entry → ~3.6 KB/day (5min interval) → ~550 days in 2MB
 
 **Download format** (human-readable):
 - Combined single CSV with header
@@ -43,9 +43,10 @@ DHT22 → ESP32 (60s interval) → LittleFS storage → Web UI
 
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/` | GET | Dashboard HTML with live readings |
+| `/` | GET | Dashboard HTML with live readings and history chart |
 | `/api/live` | GET | JSON: current temp/humidity |
 | `/api/files` | GET | JSON: list of stored files with sizes |
+| `/api/history` | GET | JSON: historical data for chart (accepts `?range=24h\|7d\|30d`) |
 | `/download` | GET | Stream combined CSV (all data) |
 | `/api/delete` | POST | Delete all stored data files |
 
@@ -55,7 +56,7 @@ In `src/main.cpp`:
 - `WIFI_SSID` / `WIFI_PASS` — Network credentials
 - `GMT_OFFSET_SEC` — Timezone offset (10800 for Turkey/GMT+3)
 - `DHT_PIN` — GPIO for sensor data (default: 4)
-- `SAMPLE_INTERVAL_MS` — Reading interval (default: 60000)
+- `SAMPLE_INTERVAL_MS` — Reading interval (default: 300000 / 5 minutes)
 
 ## Dependencies (auto-installed by PlatformIO)
 
@@ -64,6 +65,14 @@ In `src/main.cpp`:
 - `ArduinoJson` — JSON serialization for API responses
 - `LittleFS` — Built into ESP32 Arduino core
 
+## Chart Feature
+
+- **Library**: Chart.js loaded from CDN (zero flash usage)
+- **Type**: Dual-axis line chart (temperature left, humidity right)
+- **Ranges**: 24h / 7d / 30d selectable buttons
+- **Decimation**: Client-side LTTB algorithm, ~500 points max for performance
+- **Auto-refresh**: Chart updates every 5 minutes with new data
+
 ## Known Limitations / Future Ideas
 
 - No authentication on web UI
@@ -71,6 +80,7 @@ In `src/main.cpp`:
 - Single sensor only (could expand to multiple DHT22s)
 - No MQTT/external push option yet
 - Web UI is embedded as raw string literal (could move to SPIFFS for easier editing)
+- Chart requires internet connectivity to load Chart.js from CDN
 
 ## Build Commands
 

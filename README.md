@@ -1,6 +1,6 @@
 # ESP32 Environment Monitor
 
-Standalone temperature/humidity logger with web interface. Stores ~110 days of data at 60-second intervals.
+Standalone temperature/humidity logger with web interface and historical charts. Stores ~550 days of data at 5-minute intervals.
 
 ## Hardware Required
 
@@ -65,9 +65,10 @@ pio device monitor
 
 | Endpoint | Description |
 | -------- | ----------- |
-| `/` | Dashboard with live readings |
+| `/` | Dashboard with live readings and history chart |
 | `/api/live` | JSON: current temperature/humidity |
 | `/api/files` | JSON: list of stored data files |
+| `/api/history?range=` | JSON: historical data (24h, 7d, or 30d) |
 | `/download` | Download all data as combined CSV |
 | `/api/delete` | POST: delete all stored data |
 
@@ -93,9 +94,19 @@ DateTime,Temperature,Humidity
 
 ## Storage Capacity
 
-- ~18 KB per day (60-second sampling)
+- ~3.6 KB per day (5-minute sampling)
 - ~2 MB usable LittleFS storage
-- **~110 days of continuous logging**
+- **~550 days of continuous logging**
+
+## History Chart
+
+The web interface includes an interactive temperature/humidity chart:
+
+- **Dual-axis display**: Temperature (left, red) and humidity (right, teal)
+- **Time ranges**: 24h / 7d / 30d selectable via buttons
+- **Auto-refresh**: Updates every 5 minutes with new readings
+- **Smart decimation**: Uses LTTB algorithm to limit to ~500 points for smooth performance
+- **Requires internet**: Chart.js is loaded from CDN
 
 ## Troubleshooting
 
@@ -104,7 +115,8 @@ DateTime,Temperature,Humidity
 | DHT read failed | Check wiring, try different GPIO |
 | WiFi won't connect | Verify credentials, check 2.4GHz network |
 | Time not syncing | Check internet connectivity |
-| No data files | Wait 60 seconds for first sample |
+| No data files | Wait 5 minutes for first sample |
+| Chart not loading | Check internet connectivity for CDN |
 
 ## License
 
