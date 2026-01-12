@@ -126,8 +126,14 @@ void handleRoot(AsyncWebServerRequest *request) {
         .btn-danger { background: #ff4757; color: #fff; }
         .btn-danger:hover { background: #ff3344; }
         .files { margin-top: 16px; }
+        .files-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 12px; }
+        .select-all { color: #00d9ff; cursor: pointer; background: none; border: none; font-size: 12px; }
+        .select-all:hover { text-decoration: underline; }
         .file-list { font-size: 13px; color: #888; max-height: 150px; overflow-y: auto; }
-        .file-item { padding: 6px 0; border-bottom: 1px solid #222; display: flex; justify-content: space-between; }
+        .file-item { padding: 6px 0; border-bottom: 1px solid #222; display: flex; align-items: center; gap: 10px; }
+        .file-item input[type="checkbox"] { accent-color: #00d9ff; width: 16px; height: 16px; cursor: pointer; }
+        .file-item label { display: flex; justify-content: space-between; flex: 1; cursor: pointer; }
+        .file-item.selected { color: #00d9ff; }
         .storage-info { font-size: 12px; color: #666; margin-top: 12px; }
         .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .chart-title { font-size: 16px; font-weight: 600; color: #ccc; }
@@ -164,6 +170,8 @@ void handleRoot(AsyncWebServerRequest *request) {
             <div class="chart-header">
                 <span class="chart-title">History</span>
                 <div class="range-btns">
+                    <button class="range-btn" data-range="6h">6h</button>
+                    <button class="range-btn" data-range="12h">12h</button>
                     <button class="range-btn active" data-range="24h">24h</button>
                     <button class="range-btn" data-range="7d">7d</button>
                     <button class="range-btn" data-range="30d">30d</button>
@@ -177,10 +185,14 @@ void handleRoot(AsyncWebServerRequest *request) {
 
         <div class="card">
             <div class="actions">
-                <a href="/download" class="btn btn-primary" id="downloadBtn">Download CSV</a>
-                <button class="btn btn-danger" id="deleteBtn" onclick="deleteData()">Clear Data</button>
+                <button class="btn btn-primary" id="downloadBtn" onclick="downloadData()">Download All</button>
+                <button class="btn btn-danger" id="deleteBtn" onclick="deleteData()">Delete All</button>
             </div>
             <div class="files">
+                <div class="files-header">
+                    <span id="selectionInfo">Select files:</span>
+                    <button class="select-all" id="selectAllBtn" onclick="toggleSelectAll()">Select All</button>
+                </div>
                 <div class="file-list" id="fileList">Loading...</div>
             </div>
             <div class="storage-info" id="storageInfo"></div>
@@ -191,6 +203,8 @@ void handleRoot(AsyncWebServerRequest *request) {
         let chart = null;
         let cachedData = [];
         let currentRange = '24h';
+        let allFiles = [];
+        let selectedFiles = new Set();
 
         async function fetchLive() {
             try {
@@ -209,23 +223,84 @@ void handleRoot(AsyncWebServerRequest *request) {
             try {
                 const res = await fetch('/api/files');
                 const data = await res.json();
+                allFiles = data.files || [];
                 const list = document.getElementById('fileList');
 
-                if (data.files.length === 0) {
+                if (allFiles.length === 0) {
                     list.innerHTML = '<div style="padding: 10px; text-align: center;">No data yet</div>';
                     document.getElementById('downloadBtn').style.opacity = '0.5';
+                    document.getElementById('deleteBtn').style.opacity = '0.5';
                 } else {
-                    list.innerHTML = data.files.map(f =>
-                        `<div class="file-item"><span>${f.date}</span><span>${(f.size/1024).toFixed(1)} KB</span></div>`
-                    ).join('');
+                    list.innerHTML = allFiles.map(f => {
+                        const fileId = f.filename.replace('.csv', '');
+                        const checked = selectedFiles.has(fileId) ? 'checked' : '';
+                        const selectedClass = selectedFiles.has(fileId) ? 'selected' : '';
+                        return `<div class="file-item ${selectedClass}">
+                            <input type="checkbox" id="file_${fileId}" ${checked} onchange="toggleFileSelection('${fileId}')">
+                            <label for="file_${fileId}"><span>${f.date}</span><span>${(f.size/1024).toFixed(1)} KB</span></label>
+                        </div>`;
+                    }).join('');
                     document.getElementById('downloadBtn').style.opacity = '1';
+                    document.getElementById('deleteBtn').style.opacity = '1';
                 }
 
                 document.getElementById('storageInfo').textContent =
                     `Storage: ${(data.usedBytes/1024).toFixed(1)} KB used / ${(data.totalBytes/1024).toFixed(0)} KB total`;
+                updateSelectionUI();
             } catch(e) {
                 console.error(e);
             }
+        }
+
+        function toggleFileSelection(fileId) {
+            if (selectedFiles.has(fileId)) {
+                selectedFiles.delete(fileId);
+            } else {
+                selectedFiles.add(fileId);
+            }
+            updateSelectionUI();
+            // Update visual state
+            const item = document.getElementById('file_' + fileId).closest('.file-item');
+            item.classList.toggle('selected', selectedFiles.has(fileId));
+        }
+
+        function toggleSelectAll() {
+            if (selectedFiles.size === allFiles.length) {
+                selectedFiles.clear();
+            } else {
+                allFiles.forEach(f => selectedFiles.add(f.filename.replace('.csv', '')));
+            }
+            fetchFiles(); // Re-render to update checkboxes
+        }
+
+        function updateSelectionUI() {
+            const count = selectedFiles.size;
+            const total = allFiles.length;
+            const downloadBtn = document.getElementById('downloadBtn');
+            const deleteBtn = document.getElementById('deleteBtn');
+            const selectAllBtn = document.getElementById('selectAllBtn');
+            const selectionInfo = document.getElementById('selectionInfo');
+
+            if (count === 0) {
+                downloadBtn.textContent = 'Download All';
+                deleteBtn.textContent = 'Delete All';
+                selectAllBtn.textContent = 'Select All';
+                selectionInfo.textContent = 'Select files:';
+            } else {
+                downloadBtn.textContent = `Download (${count})`;
+                deleteBtn.textContent = `Delete (${count})`;
+                selectAllBtn.textContent = count === total ? 'Select None' : 'Select All';
+                selectionInfo.textContent = `${count} of ${total} selected`;
+            }
+        }
+
+        function downloadData() {
+            if (allFiles.length === 0) return;
+            let url = '/download';
+            if (selectedFiles.size > 0 && selectedFiles.size < allFiles.length) {
+                url += '?files=' + Array.from(selectedFiles).join(',');
+            }
+            window.location.href = url;
         }
 
         async function fetchHistory() {
@@ -245,7 +320,9 @@ void handleRoot(AsyncWebServerRequest *request) {
             if (!data.length) return [];
             const now = new Date();
             let cutoff;
-            if (range === '24h') cutoff = new Date(now - 24 * 60 * 60 * 1000);
+            if (range === '6h') cutoff = new Date(now - 6 * 60 * 60 * 1000);
+            else if (range === '12h') cutoff = new Date(now - 12 * 60 * 60 * 1000);
+            else if (range === '24h') cutoff = new Date(now - 24 * 60 * 60 * 1000);
             else if (range === '7d') cutoff = new Date(now - 7 * 24 * 60 * 60 * 1000);
             else if (range === '30d') cutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
             else return data;
@@ -341,11 +418,30 @@ void handleRoot(AsyncWebServerRequest *request) {
         }
 
         async function deleteData() {
-            if (!confirm('Delete ALL stored data? This cannot be undone.')) return;
+            if (allFiles.length === 0) return;
+
+            let url = '/api/delete';
+            let confirmMsg;
+
+            if (selectedFiles.size > 0 && selectedFiles.size < allFiles.length) {
+                // Selective delete - show file list
+                const fileList = Array.from(selectedFiles).sort().map(id => {
+                    const f = allFiles.find(f => f.filename.replace('.csv', '') === id);
+                    return f ? f.date : id;
+                }).join(', ');
+                confirmMsg = `Delete ${selectedFiles.size} file(s)?\n\n${fileList}\n\nThis cannot be undone.`;
+                url += '?files=' + Array.from(selectedFiles).join(',');
+            } else {
+                confirmMsg = 'Delete ALL stored data? This cannot be undone.';
+            }
+
+            if (!confirm(confirmMsg)) return;
+
             try {
-                const res = await fetch('/api/delete', { method: 'POST' });
+                const res = await fetch(url, { method: 'POST' });
                 const data = await res.json();
                 alert(`Deleted ${data.deleted} file(s)`);
+                selectedFiles.clear();
                 cachedData = [];
                 fetchFiles();
                 fetchHistory();
@@ -433,9 +529,15 @@ struct DownloadState {
 };
 
 void handleDownload(AsyncWebServerRequest *request) {
-    // Collect all CSV files
+    // Check for file filter param (comma-separated dates like "20250111,20250112")
+    String fileFilter = "";
+    if (request->hasParam("files")) {
+        fileFilter = request->getParam("files")->value();
+    }
+
+    // Collect CSV files (filtered or all)
     std::vector<String> filenames;
-    
+
     File root = LittleFS.open(DATA_DIR);
     if (root && root.isDirectory()) {
         File file = root.openNextFile();
@@ -443,18 +545,26 @@ void handleDownload(AsyncWebServerRequest *request) {
             if (!file.isDirectory()) {
                 String name = file.name();
                 if (name.endsWith(".csv")) {
-                    filenames.push_back(String(DATA_DIR) + "/" + name);
+                    // If filter specified, only include matching files
+                    if (fileFilter.length() > 0) {
+                        String dateStr = name.substring(0, 8);
+                        if (fileFilter.indexOf(dateStr) >= 0) {
+                            filenames.push_back(String(DATA_DIR) + "/" + name);
+                        }
+                    } else {
+                        filenames.push_back(String(DATA_DIR) + "/" + name);
+                    }
                 }
             }
             file = root.openNextFile();
         }
     }
-    
+
     if (filenames.empty()) {
         request->send(404, "text/plain", "No data files found");
         return;
     }
-    
+
     // Sort filenames (YYYYMMDD sorts chronologically)
     std::sort(filenames.begin(), filenames.end());
     
@@ -551,29 +661,44 @@ void handleDownload(AsyncWebServerRequest *request) {
 }
 
 void handleDelete(AsyncWebServerRequest *request) {
+    // Check for file filter param (comma-separated dates like "20250111,20250112")
+    String fileFilter = "";
+    if (request->hasParam("files")) {
+        fileFilter = request->getParam("files")->value();
+    }
+
     int deleted = 0;
-    
+
     File root = LittleFS.open(DATA_DIR);
     if (root && root.isDirectory()) {
         File file = root.openNextFile();
         std::vector<String> toDelete;
-        
+
         while (file) {
             if (!file.isDirectory()) {
-                toDelete.push_back(String(DATA_DIR) + "/" + file.name());
+                String name = file.name();
+                // If filter specified, only delete matching files
+                if (fileFilter.length() > 0) {
+                    String dateStr = name.substring(0, 8);
+                    if (fileFilter.indexOf(dateStr) >= 0) {
+                        toDelete.push_back(String(DATA_DIR) + "/" + name);
+                    }
+                } else {
+                    toDelete.push_back(String(DATA_DIR) + "/" + name);
+                }
             }
             file = root.openNextFile();
         }
-        
+
         for (const String& path : toDelete) {
             if (LittleFS.remove(path)) deleted++;
         }
     }
-    
+
     JsonDocument doc;
     doc["deleted"] = deleted;
     doc["success"] = true;
-    
+
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
