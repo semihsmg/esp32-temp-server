@@ -12,7 +12,7 @@ const char* WIFI_PASS = "SMG*1234567*SMG";
 
 #define DHT_PIN 4
 #define DHT_TYPE DHT22
-#define SAMPLE_INTERVAL_MS 60000  // 60 seconds
+#define SAMPLE_INTERVAL_MS 300000  // 5 minutes
 #define DATA_DIR "/data"
 
 // NTP Configuration
@@ -104,10 +104,12 @@ void handleRoot(AsyncWebServerRequest *request) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Environment Monitor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-decimation"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; padding: 20px; }
-        .container { max-width: 600px; margin: 0 auto; }
+        .container { max-width: 800px; margin: 0 auto; }
         h1 { text-align: center; margin-bottom: 30px; color: #00d9ff; }
         .card { background: #16213e; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
         .readings { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -127,17 +129,25 @@ void handleRoot(AsyncWebServerRequest *request) {
         .file-list { font-size: 13px; color: #888; max-height: 150px; overflow-y: auto; }
         .file-item { padding: 6px 0; border-bottom: 1px solid #222; display: flex; justify-content: space-between; }
         .storage-info { font-size: 12px; color: #666; margin-top: 12px; }
+        .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .chart-title { font-size: 16px; font-weight: 600; color: #ccc; }
+        .range-btns { display: flex; gap: 8px; }
+        .range-btn { padding: 8px 16px; border: 1px solid #333; background: transparent; color: #888; border-radius: 6px; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+        .range-btn:hover { border-color: #00d9ff; color: #00d9ff; }
+        .range-btn.active { background: #00d9ff; color: #000; border-color: #00d9ff; }
+        .chart-container { position: relative; height: 300px; }
+        .chart-loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #666; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🌡️ Environment Monitor</h1>
-        
+        <h1>Environment Monitor</h1>
+
         <div class="card">
             <div class="readings">
                 <div class="reading temp">
                     <div class="value" id="temp">--</div>
-                    <div class="label">Temperature (°C)</div>
+                    <div class="label">Temperature (C)</div>
                 </div>
                 <div class="reading humidity">
                     <div class="value" id="humidity">--</div>
@@ -149,11 +159,26 @@ void handleRoot(AsyncWebServerRequest *request) {
                 <span id="wifiStatus">●</span>
             </div>
         </div>
-        
+
+        <div class="card">
+            <div class="chart-header">
+                <span class="chart-title">History</span>
+                <div class="range-btns">
+                    <button class="range-btn active" data-range="24h">24h</button>
+                    <button class="range-btn" data-range="7d">7d</button>
+                    <button class="range-btn" data-range="30d">30d</button>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-loading" id="chartLoading">Loading chart...</div>
+                <canvas id="historyChart"></canvas>
+            </div>
+        </div>
+
         <div class="card">
             <div class="actions">
-                <a href="/download" class="btn btn-primary" id="downloadBtn">📥 Download CSV</a>
-                <button class="btn btn-danger" id="deleteBtn" onclick="deleteData()">🗑️ Clear Data</button>
+                <a href="/download" class="btn btn-primary" id="downloadBtn">Download CSV</a>
+                <button class="btn btn-danger" id="deleteBtn" onclick="deleteData()">Clear Data</button>
             </div>
             <div class="files">
                 <div class="file-list" id="fileList">Loading...</div>
@@ -161,8 +186,11 @@ void handleRoot(AsyncWebServerRequest *request) {
             <div class="storage-info" id="storageInfo"></div>
         </div>
     </div>
-    
+
     <script>
+        let chart = null;
+        let currentRange = '24h';
+
         async function fetchLive() {
             try {
                 const res = await fetch('/api/live');
@@ -175,30 +203,125 @@ void handleRoot(AsyncWebServerRequest *request) {
                 document.getElementById('wifiStatus').style.color = '#ff4757';
             }
         }
-        
+
         async function fetchFiles() {
             try {
                 const res = await fetch('/api/files');
                 const data = await res.json();
                 const list = document.getElementById('fileList');
-                
+
                 if (data.files.length === 0) {
                     list.innerHTML = '<div style="padding: 10px; text-align: center;">No data yet</div>';
                     document.getElementById('downloadBtn').style.opacity = '0.5';
                 } else {
-                    list.innerHTML = data.files.map(f => 
+                    list.innerHTML = data.files.map(f =>
                         `<div class="file-item"><span>${f.date}</span><span>${(f.size/1024).toFixed(1)} KB</span></div>`
                     ).join('');
                     document.getElementById('downloadBtn').style.opacity = '1';
                 }
-                
-                document.getElementById('storageInfo').textContent = 
+
+                document.getElementById('storageInfo').textContent =
                     `Storage: ${(data.usedBytes/1024).toFixed(1)} KB used / ${(data.totalBytes/1024).toFixed(0)} KB total`;
             } catch(e) {
                 console.error(e);
             }
         }
-        
+
+        async function fetchHistory(range) {
+            document.getElementById('chartLoading').style.display = 'block';
+            try {
+                const res = await fetch(`/api/history?range=${range}`);
+                const data = await res.json();
+                updateChart(data.data);
+            } catch(e) {
+                console.error('Failed to fetch history:', e);
+            }
+            document.getElementById('chartLoading').style.display = 'none';
+        }
+
+        function updateChart(data) {
+            const labels = data.map(d => d.t);
+            const temps = data.map(d => d.temp);
+            const hums = data.map(d => d.hum);
+
+            if (chart) {
+                chart.data.labels = labels;
+                chart.data.datasets[0].data = temps;
+                chart.data.datasets[1].data = hums;
+                chart.update('none');
+                return;
+            }
+
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Temperature (C)',
+                        data: temps,
+                        borderColor: '#ff6b6b',
+                        backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                        yAxisID: 'y',
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderWidth: 2
+                    }, {
+                        label: 'Humidity (%)',
+                        data: hums,
+                        borderColor: '#4ecdc4',
+                        backgroundColor: 'rgba(78, 205, 196, 0.1)',
+                        yAxisID: 'y1',
+                        tension: 0.3,
+                        pointRadius: 0,
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: { color: '#888', usePointStyle: true, padding: 20 }
+                        },
+                        decimation: {
+                            enabled: true,
+                            algorithm: 'lttb',
+                            samples: 500
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: '#666',
+                                maxTicksLimit: 8,
+                                maxRotation: 0
+                            },
+                            grid: { color: '#222' }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            position: 'left',
+                            title: { display: true, text: 'Temp (C)', color: '#ff6b6b' },
+                            ticks: { color: '#ff6b6b' },
+                            grid: { color: '#222' }
+                        },
+                        y1: {
+                            type: 'linear',
+                            display: true,
+                            position: 'right',
+                            title: { display: true, text: 'Humidity (%)', color: '#4ecdc4' },
+                            ticks: { color: '#4ecdc4' },
+                            grid: { drawOnChartArea: false }
+                        }
+                    }
+                }
+            });
+        }
+
         async function deleteData() {
             if (!confirm('Delete ALL stored data? This cannot be undone.')) return;
             try {
@@ -206,15 +329,31 @@ void handleRoot(AsyncWebServerRequest *request) {
                 const data = await res.json();
                 alert(`Deleted ${data.deleted} file(s)`);
                 fetchFiles();
+                fetchHistory(currentRange);
             } catch(e) {
                 alert('Delete failed');
             }
         }
-        
+
+        // Range button handlers
+        document.querySelectorAll('.range-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentRange = btn.dataset.range;
+                fetchHistory(currentRange);
+            });
+        });
+
+        // Initial load
         fetchLive();
         fetchFiles();
+        fetchHistory(currentRange);
+
+        // Auto-refresh
         setInterval(fetchLive, 10000);
         setInterval(fetchFiles, 60000);
+        setInterval(() => fetchHistory(currentRange), 300000); // 5 min refresh for chart
     </script>
 </body>
 </html>
@@ -418,6 +557,105 @@ void handleDelete(AsyncWebServerRequest *request) {
     request->send(200, "application/json", response);
 }
 
+// ==================== HISTORY API ====================
+void handleHistory(AsyncWebServerRequest *request) {
+    // Get range parameter (default: 24h)
+    String range = "24h";
+    if (request->hasParam("range")) {
+        range = request->getParam("range")->value();
+    }
+
+    // Calculate days to include
+    int daysToInclude = 1;
+    if (range == "7d") daysToInclude = 7;
+    else if (range == "30d") daysToInclude = 30;
+
+    // Get current date for filtering
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+        request->send(500, "application/json", "{\"error\":\"Time not initialized\"}");
+        return;
+    }
+
+    // Calculate cutoff timestamp
+    time_t now = mktime(&timeinfo);
+    time_t cutoff = now - (daysToInclude * 24 * 60 * 60);
+
+    // Collect matching files
+    std::vector<String> filenames;
+    File root = LittleFS.open(DATA_DIR);
+    if (root && root.isDirectory()) {
+        File file = root.openNextFile();
+        while (file) {
+            if (!file.isDirectory()) {
+                String name = file.name();
+                if (name.endsWith(".csv") && name.length() >= 8) {
+                    // Parse date from filename (YYYYMMDD.csv)
+                    String dateStr = name.substring(0, 8);
+                    int year = dateStr.substring(0, 4).toInt();
+                    int month = dateStr.substring(4, 6).toInt();
+                    int day = dateStr.substring(6, 8).toInt();
+
+                    struct tm fileDate = {0};
+                    fileDate.tm_year = year - 1900;
+                    fileDate.tm_mon = month - 1;
+                    fileDate.tm_mday = day;
+                    fileDate.tm_hour = 23;
+                    fileDate.tm_min = 59;
+                    time_t fileTime = mktime(&fileDate);
+
+                    if (fileTime >= cutoff) {
+                        filenames.push_back(String(DATA_DIR) + "/" + name);
+                    }
+                }
+            }
+            file = root.openNextFile();
+        }
+    }
+
+    std::sort(filenames.begin(), filenames.end());
+
+    // Stream JSON response
+    AsyncResponseStream *response = request->beginResponseStream("application/json");
+    response->print("{\"data\":[");
+
+    bool firstEntry = true;
+    for (const String& path : filenames) {
+        File dataFile = LittleFS.open(path, FILE_READ);
+        if (!dataFile) continue;
+
+        // Extract date from filename
+        int lastSlash = path.lastIndexOf('/');
+        String filename = path.substring(lastSlash + 1);
+        String dateStr = formatDateForDisplay(filename.substring(0, 8));
+
+        while (dataFile.available()) {
+            String line = dataFile.readStringUntil('\n');
+            line.trim();
+            if (line.isEmpty()) continue;
+
+            int comma1 = line.indexOf(',');
+            int comma2 = line.indexOf(',', comma1 + 1);
+
+            if (comma1 > 0 && comma2 > comma1) {
+                String timeStr = formatTimeForDisplay(line.substring(0, comma1));
+                float temp = line.substring(comma1 + 1, comma2).toInt() / 10.0;
+                float humidity = line.substring(comma2 + 1).toInt() / 10.0;
+
+                if (!firstEntry) response->print(",");
+                firstEntry = false;
+
+                response->printf("{\"t\":\"%s %s\",\"temp\":%.1f,\"hum\":%.1f}",
+                    dateStr.c_str(), timeStr.c_str(), temp, humidity);
+            }
+        }
+        dataFile.close();
+    }
+
+    response->print("]}");
+    request->send(response);
+}
+
 // ==================== SETUP & LOOP ====================
 void setup() {
     Serial.begin(115200);
@@ -471,6 +709,7 @@ void setup() {
     server.on("/", HTTP_GET, handleRoot);
     server.on("/api/live", HTTP_GET, handleLiveData);
     server.on("/api/files", HTTP_GET, handleFileList);
+    server.on("/api/history", HTTP_GET, handleHistory);
     server.on("/download", HTTP_GET, handleDownload);
     server.on("/api/delete", HTTP_POST, handleDelete);
     
