@@ -69,8 +69,8 @@ pio device monitor
 | `/api/live` | JSON: current temperature/humidity |
 | `/api/files` | JSON: list of stored data files |
 | `/api/history` | JSON: all historical data |
-| `/download` | Download all data as combined CSV |
-| `/api/delete` | POST: delete all stored data |
+| `/download` | Download data as CSV (all or selected files) |
+| `/api/delete` | POST: delete data files (all or selected) |
 
 ## Data Format
 
@@ -103,11 +103,18 @@ DateTime,Temperature,Humidity
 The web interface includes an interactive temperature/humidity chart:
 
 - **Dual-axis display**: Temperature (left, red) and humidity (right, teal)
-- **Time ranges**: 24h / 7d / 30d selectable via buttons (instant switching)
+- **Time ranges**: 6h / 12h / 24h / 7d / 30d selectable via buttons (instant switching)
 - **Client-side caching**: All data fetched once, filtered in browser for fast range switching
 - **Auto-refresh**: Full data refresh every 5 minutes
 - **Smart decimation**: Uses LTTB algorithm to limit to ~500 points for smooth performance
 - **Requires internet**: Chart.js is loaded from CDN
+
+## File Management
+
+- **Select files**: Click checkboxes to select specific days
+- **Select All/None**: Toggle button to select or deselect all files
+- **Download selected**: Download only chosen days as combined CSV
+- **Delete selected**: Delete only chosen days (with confirmation showing file list)
 
 ## Troubleshooting
 

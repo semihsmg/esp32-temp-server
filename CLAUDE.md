@@ -47,8 +47,8 @@ DHT22 → ESP32 (5min interval) → LittleFS storage → Web UI
 | `/api/live` | GET | JSON: current temp/humidity |
 | `/api/files` | GET | JSON: list of stored files with sizes |
 | `/api/history` | GET | JSON: all historical data (client-side filtering) |
-| `/download` | GET | Stream combined CSV (all data) |
-| `/api/delete` | POST | Delete all stored data files |
+| `/download` | GET | Stream CSV (all or selected via `?files=YYYYMMDD,…`) |
+| `/api/delete` | POST | Delete data files (all or selected via `?files=YYYYMMDD,…`) |
 
 ## Configuration Points
 
@@ -69,15 +69,21 @@ In `src/main.cpp`:
 
 - **Library**: Chart.js loaded from CDN (zero flash usage)
 - **Type**: Dual-axis line chart (temperature left, humidity right)
-- **Ranges**: 24h / 7d / 30d selectable buttons (instant switch, client-side filtering)
+- **Ranges**: 6h / 12h / 24h / 7d / 30d selectable buttons (instant switch, client-side filtering)
 - **Data caching**: All data fetched once, cached in browser, filtered client-side
 - **Decimation**: Client-side LTTB algorithm, ~500 points max for performance
 - **Auto-refresh**: Full data refresh every 5 minutes
 
+## File Management
+
+- **Selection**: Checkbox per file with Select All/None toggle
+- **Context-aware buttons**: "Download All" / "Delete All" or "Download (N)" / "Delete (N)" based on selection
+- **Selective operations**: Download or delete only selected days
+- **Delete confirmation**: Shows list of files to be deleted
+
 ## Known Limitations / Future Ideas
 
 - No authentication on web UI
-- No date range filtering on download (always exports all)
 - Single sensor only (could expand to multiple DHT22s)
 - No MQTT/external push option yet
 - Web UI is embedded as raw string literal (could move to SPIFFS for easier editing)
