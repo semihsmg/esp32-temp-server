@@ -558,6 +558,16 @@ void handleDelete(AsyncWebServerRequest *request) {
 }
 
 // ==================== HISTORY API ====================
+struct HistoryState {
+    std::vector<String> filenames;
+    size_t fileIndex = 0;
+    File currentFile;
+    String currentDate;
+    bool headerSent = false;
+    bool firstEntry = true;
+    bool footerSent = false;
+};
+
 void handleHistory(AsyncWebServerRequest *request) {
     // Get range parameter (default: 24h)
     String range = "24h";
@@ -590,7 +600,6 @@ void handleHistory(AsyncWebServerRequest *request) {
             if (!file.isDirectory()) {
                 String name = file.name();
                 if (name.endsWith(".csv") && name.length() >= 8) {
-                    // Parse date from filename (YYYYMMDD.csv)
                     String dateStr = name.substring(0, 8);
                     int year = dateStr.substring(0, 4).toInt();
                     int month = dateStr.substring(4, 6).toInt();
@@ -615,44 +624,104 @@ void handleHistory(AsyncWebServerRequest *request) {
 
     std::sort(filenames.begin(), filenames.end());
 
-    // Stream JSON response
-    AsyncResponseStream *response = request->beginResponseStream("application/json");
-    response->print("{\"data\":[");
+    // Create state for chunked streaming
+    HistoryState* state = new HistoryState();
+    state->filenames = filenames;
 
-    bool firstEntry = true;
-    for (const String& path : filenames) {
-        File dataFile = LittleFS.open(path, FILE_READ);
-        if (!dataFile) continue;
+    AsyncWebServerResponse *response = request->beginChunkedResponse("application/json",
+        [state](uint8_t *buffer, size_t maxLen, size_t index) -> size_t {
+            size_t len = 0;
+            char* buf = (char*)buffer;
 
-        // Extract date from filename
-        int lastSlash = path.lastIndexOf('/');
-        String filename = path.substring(lastSlash + 1);
-        String dateStr = formatDateForDisplay(filename.substring(0, 8));
-
-        while (dataFile.available()) {
-            String line = dataFile.readStringUntil('\n');
-            line.trim();
-            if (line.isEmpty()) continue;
-
-            int comma1 = line.indexOf(',');
-            int comma2 = line.indexOf(',', comma1 + 1);
-
-            if (comma1 > 0 && comma2 > comma1) {
-                String timeStr = formatTimeForDisplay(line.substring(0, comma1));
-                float temp = line.substring(comma1 + 1, comma2).toInt() / 10.0;
-                float humidity = line.substring(comma2 + 1).toInt() / 10.0;
-
-                if (!firstEntry) response->print(",");
-                firstEntry = false;
-
-                response->printf("{\"t\":\"%s %s\",\"temp\":%.1f,\"hum\":%.1f}",
-                    dateStr.c_str(), timeStr.c_str(), temp, humidity);
+            // Send header first
+            if (!state->headerSent) {
+                const char* header = "{\"data\":[";
+                size_t headerLen = strlen(header);
+                if (headerLen <= maxLen) {
+                    memcpy(buf, header, headerLen);
+                    state->headerSent = true;
+                    return headerLen;
+                }
+                return 0;
             }
-        }
-        dataFile.close();
-    }
 
-    response->print("]}");
+            // Process files
+            while (len < maxLen - 60 && state->fileIndex < state->filenames.size()) {
+                // Open next file if needed
+                if (!state->currentFile) {
+                    String path = state->filenames[state->fileIndex];
+                    state->currentFile = LittleFS.open(path, FILE_READ);
+
+                    if (!state->currentFile) {
+                        state->fileIndex++;
+                        continue;
+                    }
+
+                    int lastSlash = path.lastIndexOf('/');
+                    String filename = path.substring(lastSlash + 1);
+                    state->currentDate = formatDateForDisplay(filename.substring(0, 8));
+                }
+
+                // Read lines from current file
+                while (state->currentFile.available() && len < maxLen - 60) {
+                    String line = state->currentFile.readStringUntil('\n');
+                    line.trim();
+                    if (line.isEmpty()) continue;
+
+                    int comma1 = line.indexOf(',');
+                    int comma2 = line.indexOf(',', comma1 + 1);
+
+                    if (comma1 > 0 && comma2 > comma1) {
+                        String timeStr = formatTimeForDisplay(line.substring(0, comma1));
+                        float temp = line.substring(comma1 + 1, comma2).toInt() / 10.0;
+                        float humidity = line.substring(comma2 + 1).toInt() / 10.0;
+
+                        int written;
+                        if (state->firstEntry) {
+                            written = snprintf(buf + len, maxLen - len,
+                                "{\"t\":\"%s %s\",\"temp\":%.1f,\"hum\":%.1f}",
+                                state->currentDate.c_str(), timeStr.c_str(), temp, humidity);
+                            state->firstEntry = false;
+                        } else {
+                            written = snprintf(buf + len, maxLen - len,
+                                ",{\"t\":\"%s %s\",\"temp\":%.1f,\"hum\":%.1f}",
+                                state->currentDate.c_str(), timeStr.c_str(), temp, humidity);
+                        }
+
+                        if (written > 0 && (size_t)written < maxLen - len) {
+                            len += written;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                // Move to next file if current is done
+                if (!state->currentFile.available()) {
+                    state->currentFile.close();
+                    state->fileIndex++;
+                }
+            }
+
+            // Send footer when all files processed
+            if (state->fileIndex >= state->filenames.size()) {
+                if (!state->footerSent) {
+                    if (len + 2 <= maxLen) {
+                        memcpy(buf + len, "]}", 2);
+                        len += 2;
+                        state->footerSent = true;
+                    }
+                    return len;
+                }
+                // Footer already sent, cleanup and signal end
+                delete state;
+                return 0;
+            }
+
+            return len;
+        }
+    );
+
     request->send(response);
 }
 
