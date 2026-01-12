@@ -189,6 +189,7 @@ void handleRoot(AsyncWebServerRequest *request) {
 
     <script>
         let chart = null;
+        let cachedData = [];
         let currentRange = '24h';
 
         async function fetchLive() {
@@ -227,22 +228,39 @@ void handleRoot(AsyncWebServerRequest *request) {
             }
         }
 
-        async function fetchHistory(range) {
+        async function fetchHistory() {
             document.getElementById('chartLoading').style.display = 'block';
             try {
-                const res = await fetch(`/api/history?range=${range}`);
+                const res = await fetch('/api/history');
                 const data = await res.json();
-                updateChart(data.data);
+                cachedData = data.data || [];
+                renderChart();
             } catch(e) {
                 console.error('Failed to fetch history:', e);
             }
             document.getElementById('chartLoading').style.display = 'none';
         }
 
-        function updateChart(data) {
-            const labels = data.map(d => d.t);
-            const temps = data.map(d => d.temp);
-            const hums = data.map(d => d.hum);
+        function filterDataByRange(data, range) {
+            if (!data.length) return [];
+            const now = new Date();
+            let cutoff;
+            if (range === '24h') cutoff = new Date(now - 24 * 60 * 60 * 1000);
+            else if (range === '7d') cutoff = new Date(now - 7 * 24 * 60 * 60 * 1000);
+            else if (range === '30d') cutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
+            else return data;
+
+            return data.filter(d => {
+                const ts = new Date(d.t.replace(' ', 'T'));
+                return ts >= cutoff;
+            });
+        }
+
+        function renderChart() {
+            const filtered = filterDataByRange(cachedData, currentRange);
+            const labels = filtered.map(d => d.t);
+            const temps = filtered.map(d => d.temp);
+            const hums = filtered.map(d => d.hum);
 
             if (chart) {
                 chart.data.labels = labels;
@@ -328,32 +346,33 @@ void handleRoot(AsyncWebServerRequest *request) {
                 const res = await fetch('/api/delete', { method: 'POST' });
                 const data = await res.json();
                 alert(`Deleted ${data.deleted} file(s)`);
+                cachedData = [];
                 fetchFiles();
-                fetchHistory(currentRange);
+                fetchHistory();
             } catch(e) {
                 alert('Delete failed');
             }
         }
 
-        // Range button handlers
+        // Range button handlers - instant switch, no fetch
         document.querySelectorAll('.range-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentRange = btn.dataset.range;
-                fetchHistory(currentRange);
+                renderChart();
             });
         });
 
         // Initial load
         fetchLive();
         fetchFiles();
-        fetchHistory(currentRange);
+        fetchHistory();
 
         // Auto-refresh
         setInterval(fetchLive, 10000);
         setInterval(fetchFiles, 60000);
-        setInterval(() => fetchHistory(currentRange), 300000); // 5 min refresh for chart
+        setInterval(fetchHistory, 300000); // Full refresh every 5 min
     </script>
 </body>
 </html>
@@ -410,6 +429,7 @@ struct DownloadState {
     File currentFile;
     String currentDate;
     bool headerSent = false;
+    bool fileIsOpen = false;
 };
 
 void handleDownload(AsyncWebServerRequest *request) {
@@ -462,43 +482,44 @@ void handleDownload(AsyncWebServerRequest *request) {
             // Process files
             while (len < maxLen - 50 && state->fileIndex < state->filenames.size()) {
                 // Open next file if needed
-                if (!state->currentFile) {
+                if (!state->fileIsOpen) {
                     String path = state->filenames[state->fileIndex];
                     state->currentFile = LittleFS.open(path, FILE_READ);
-                    
+
                     if (!state->currentFile) {
                         state->fileIndex++;
                         continue;
                     }
-                    
+                    state->fileIsOpen = true;
+
                     // Extract date from filename
                     int lastSlash = path.lastIndexOf('/');
                     String filename = path.substring(lastSlash + 1);
                     state->currentDate = formatDateForDisplay(filename.substring(0, 8));
                 }
-                
+
                 // Read lines from current file
                 while (state->currentFile.available() && len < maxLen - 50) {
                     String line = state->currentFile.readStringUntil('\n');
                     line.trim();
                     if (line.isEmpty()) continue;
-                    
+
                     // Parse: HHMM,235,652
                     int comma1 = line.indexOf(',');
                     int comma2 = line.indexOf(',', comma1 + 1);
-                    
+
                     if (comma1 > 0 && comma2 > comma1) {
                         String timeStr = formatTimeForDisplay(line.substring(0, comma1));
                         float temp = line.substring(comma1 + 1, comma2).toInt() / 10.0;
                         float humidity = line.substring(comma2 + 1).toInt() / 10.0;
-                        
+
                         // Format output line
                         int written = snprintf(buf + len, maxLen - len,
                             "%s %s,%.1f,%.1f\n",
                             state->currentDate.c_str(),
                             timeStr.c_str(),
                             temp, humidity);
-                        
+
                         if (written > 0 && (size_t)written < maxLen - len) {
                             len += written;
                         } else {
@@ -506,10 +527,11 @@ void handleDownload(AsyncWebServerRequest *request) {
                         }
                     }
                 }
-                
+
                 // Move to next file if current is done
                 if (!state->currentFile.available()) {
                     state->currentFile.close();
+                    state->fileIsOpen = false;
                     state->fileIndex++;
                 }
             }
@@ -566,32 +588,11 @@ struct HistoryState {
     bool headerSent = false;
     bool firstEntry = true;
     bool footerSent = false;
+    bool fileIsOpen = false;
 };
 
 void handleHistory(AsyncWebServerRequest *request) {
-    // Get range parameter (default: 24h)
-    String range = "24h";
-    if (request->hasParam("range")) {
-        range = request->getParam("range")->value();
-    }
-
-    // Calculate days to include
-    int daysToInclude = 1;
-    if (range == "7d") daysToInclude = 7;
-    else if (range == "30d") daysToInclude = 30;
-
-    // Get current date for filtering
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
-        request->send(500, "application/json", "{\"error\":\"Time not initialized\"}");
-        return;
-    }
-
-    // Calculate cutoff timestamp
-    time_t now = mktime(&timeinfo);
-    time_t cutoff = now - (daysToInclude * 24 * 60 * 60);
-
-    // Collect matching files
+    // Collect all CSV files (no filtering - client handles range)
     std::vector<String> filenames;
     File root = LittleFS.open(DATA_DIR);
     if (root && root.isDirectory()) {
@@ -599,23 +600,8 @@ void handleHistory(AsyncWebServerRequest *request) {
         while (file) {
             if (!file.isDirectory()) {
                 String name = file.name();
-                if (name.endsWith(".csv") && name.length() >= 8) {
-                    String dateStr = name.substring(0, 8);
-                    int year = dateStr.substring(0, 4).toInt();
-                    int month = dateStr.substring(4, 6).toInt();
-                    int day = dateStr.substring(6, 8).toInt();
-
-                    struct tm fileDate = {0};
-                    fileDate.tm_year = year - 1900;
-                    fileDate.tm_mon = month - 1;
-                    fileDate.tm_mday = day;
-                    fileDate.tm_hour = 23;
-                    fileDate.tm_min = 59;
-                    time_t fileTime = mktime(&fileDate);
-
-                    if (fileTime >= cutoff) {
-                        filenames.push_back(String(DATA_DIR) + "/" + name);
-                    }
+                if (name.endsWith(".csv")) {
+                    filenames.push_back(String(DATA_DIR) + "/" + name);
                 }
             }
             file = root.openNextFile();
@@ -648,7 +634,7 @@ void handleHistory(AsyncWebServerRequest *request) {
             // Process files
             while (len < maxLen - 60 && state->fileIndex < state->filenames.size()) {
                 // Open next file if needed
-                if (!state->currentFile) {
+                if (!state->fileIsOpen) {
                     String path = state->filenames[state->fileIndex];
                     state->currentFile = LittleFS.open(path, FILE_READ);
 
@@ -656,6 +642,7 @@ void handleHistory(AsyncWebServerRequest *request) {
                         state->fileIndex++;
                         continue;
                     }
+                    state->fileIsOpen = true;
 
                     int lastSlash = path.lastIndexOf('/');
                     String filename = path.substring(lastSlash + 1);
@@ -699,6 +686,7 @@ void handleHistory(AsyncWebServerRequest *request) {
                 // Move to next file if current is done
                 if (!state->currentFile.available()) {
                     state->currentFile.close();
+                    state->fileIsOpen = false;
                     state->fileIndex++;
                 }
             }
