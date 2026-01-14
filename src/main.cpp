@@ -213,7 +213,7 @@ void handleRoot(AsyncWebServerRequest *request) {
                 const data = await res.json();
                 document.getElementById('temp').textContent = data.temperature.toFixed(1);
                 document.getElementById('humidity').textContent = data.humidity.toFixed(1);
-                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString();
+                document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('en-GB');
                 document.getElementById('wifiStatus').style.color = '#4ecdc4';
             } catch(e) {
                 document.getElementById('wifiStatus').style.color = '#ff4757';
