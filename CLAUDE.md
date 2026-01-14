@@ -69,7 +69,7 @@ In `src/main.cpp`:
 
 - **Library**: Chart.js loaded from CDN (zero flash usage)
 - **Type**: Dual-axis line chart (temperature left, humidity right)
-- **Ranges**: 6h / 12h / 24h / 7d / 30d selectable buttons (instant switch, client-side filtering)
+- **Ranges**: 6h / 12h / 24h / 3d / 7d / 30d selectable buttons (default: 12h, instant switch, client-side filtering)
 - **Data caching**: All data fetched once, cached in browser, filtered client-side
 - **Decimation**: Client-side LTTB algorithm, ~500 points max for performance
 - **Auto-refresh**: Full data refresh every 5 minutes
