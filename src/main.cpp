@@ -171,8 +171,9 @@ void handleRoot(AsyncWebServerRequest *request) {
                 <span class="chart-title">History</span>
                 <div class="range-btns">
                     <button class="range-btn" data-range="6h">6h</button>
-                    <button class="range-btn" data-range="12h">12h</button>
-                    <button class="range-btn active" data-range="24h">24h</button>
+                    <button class="range-btn active" data-range="12h">12h</button>
+                    <button class="range-btn" data-range="24h">24h</button>
+                    <button class="range-btn" data-range="3d">3d</button>
                     <button class="range-btn" data-range="7d">7d</button>
                     <button class="range-btn" data-range="30d">30d</button>
                 </div>
@@ -202,7 +203,7 @@ void handleRoot(AsyncWebServerRequest *request) {
     <script>
         let chart = null;
         let cachedData = [];
-        let currentRange = '24h';
+        let currentRange = '12h';
         let allFiles = [];
         let selectedFiles = new Set();
 
@@ -323,6 +324,7 @@ void handleRoot(AsyncWebServerRequest *request) {
             if (range === '6h') cutoff = new Date(now - 6 * 60 * 60 * 1000);
             else if (range === '12h') cutoff = new Date(now - 12 * 60 * 60 * 1000);
             else if (range === '24h') cutoff = new Date(now - 24 * 60 * 60 * 1000);
+            else if (range === '3d') cutoff = new Date(now - 3 * 24 * 60 * 60 * 1000);
             else if (range === '7d') cutoff = new Date(now - 7 * 24 * 60 * 60 * 1000);
             else if (range === '30d') cutoff = new Date(now - 30 * 24 * 60 * 60 * 1000);
             else return data;
